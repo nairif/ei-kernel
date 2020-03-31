@@ -1,14 +1,6 @@
-/* Copyright (c) 2010-2019, The Linux Foundation. All rights reserved.
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2 and
- * only version 2 as published by the Free Software Foundation.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
+// SPDX-License-Identifier: GPL-2.0-only
+/*
+ * Copyright (c) 2010-2020, The Linux Foundation. All rights reserved.
  */
 #include <linux/errno.h>
 #include <linux/module.h>
@@ -704,11 +696,14 @@ static int tz_start(struct devfreq *devfreq)
 	unsigned int tz_pwrlevels[MSM_ADRENO_MAX_PWRLEVELS + 1];
 	int i, out, ret;
 	unsigned int version;
+	struct msm_adreno_extended_profile *gpu_profile;
 
-	struct msm_adreno_extended_profile *gpu_profile = container_of(
-					(devfreq->profile),
-					struct msm_adreno_extended_profile,
-					profile);
+	if (partner_gpu_profile)
+		return -EEXIST;
+
+	gpu_profile = container_of(devfreq->profile,
+			struct msm_adreno_extended_profile,
+			profile);
 
 	/*
 	 * Assuming that we have only one instance of the adreno device
@@ -727,6 +722,7 @@ static int tz_start(struct devfreq *devfreq)
 		tz_pwrlevels[0] = i;
 	} else {
 		pr_err(TAG "tz_pwrlevels[] is too short\n");
+		partner_gpu_profile = NULL;
 		return -EINVAL;
 	}
 
@@ -734,6 +730,7 @@ static int tz_start(struct devfreq *devfreq)
 				sizeof(version));
 	if (ret != 0 || version > MAX_TZ_VERSION) {
 		pr_err(TAG "tz_init failed\n");
+		partner_gpu_profile = NULL;
 		return ret;
 	}
 
@@ -809,6 +806,22 @@ static int tz_handler(struct devfreq *devfreq, unsigned int event, void *data)
 		result = 0;
 		break;
 	}
+
+	if (!result && partner_gpu_profile && partner_gpu_profile->bus_devfreq)
+		switch (event) {
+		case DEVFREQ_GOV_START:
+			queue_work(workqueue,
+					&gpu_profile->partner_start_event_ws);
+			break;
+		case DEVFREQ_GOV_SUSPEND:
+			queue_work(workqueue,
+					&gpu_profile->partner_suspend_event_ws);
+			break;
+		case DEVFREQ_GOV_RESUME:
+			queue_work(workqueue,
+					&gpu_profile->partner_resume_event_ws);
+			break;
+		}
 
 	return result;
 }
