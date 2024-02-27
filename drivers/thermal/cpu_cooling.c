@@ -338,50 +338,76 @@ static int cpufreq_thermal_notifier(struct notifier_block *nb,
 	return NOTIFY_OK;
 }
 
-#ifdef CONFIG_ARCH_QCOM
-void cpu_limits_set_level(unsigned int cpu, unsigned int max_freq)
-{
-	struct cpufreq_cooling_device *cpufreq_cdev;
-	struct thermal_cooling_device *cdev;
-	unsigned int level;
-
-	list_for_each_entry(cpufreq_cdev, &cpufreq_cdev_list, node) {
-		if (cpufreq_cdev->id == cpu) {
-                  //solve the max CPU limit not set by dongchangsicheng 2022/05/17
-			for (level = 0; level <= cpufreq_cdev->max_level; level++) {
-				int target_freq = cpufreq_cdev->em->table[level].frequency;
-				if (max_freq <= target_freq) {
-					cdev = cpufreq_cdev->cdev;
-					if (cdev){
-						cdev->ops->set_cur_state(cdev, cpufreq_cdev->max_level - level);
-                                        }
-
-					break;
-				}
-			}
-
-			break;
-		}
-	}
-}
-#endif
-
-#ifdef CONFIG_ENERGY_MODEL
 /**
- * get_level: Find the level for a particular frequency
- * @cpufreq_cdev: cpufreq_cdev for which the property is required
- * @freq: Frequency
+ * update_freq_table() - Update the freq table with power numbers
+ * @cpufreq_cdev:	the cpufreq cooling device in which to update the table
+ * @capacitance: dynamic power coefficient for these cpus
  *
- * Return: level corresponding to the frequency.
+ * Update the freq table with power numbers.  This table will be used in
+ * cpu_power_to_freq() and cpu_freq_to_power() to convert between power and
+ * frequency efficiently.  Power is stored in mW, frequency in KHz.  The
+ * resulting table is in descending order.
+ *
+ * Return: 0 on success, -EINVAL if there are no OPPs for any CPUs,
+ * or -ENOMEM if we run out of memory.
  */
-static unsigned long get_level(struct cpufreq_cooling_device *cpufreq_cdev,
-			       unsigned int freq)
+static int update_freq_table(struct cpufreq_cooling_device *cpufreq_cdev,
+			     u32 capacitance)
 {
-	int i;
+	struct freq_table *freq_table = cpufreq_cdev->freq_table;
+	struct dev_pm_opp *opp;
+	struct device *dev = NULL;
+	int num_opps = 0, cpu = cpufreq_cdev->policy->cpu, i;
 
-	for (i = cpufreq_cdev->max_level - 1; i >= 0; i--) {
-		if (freq > cpufreq_cdev->em->table[i].frequency)
-			break;
+	dev = get_cpu_device(cpu);
+	if (unlikely(!dev)) {
+		dev_warn(&cpufreq_cdev->cdev->device,
+			 "No cpu device for cpu %d\n", cpu);
+		return -ENODEV;
+	}
+
+	num_opps = dev_pm_opp_get_opp_count(dev);
+	if (num_opps < 0)
+		return num_opps;
+
+	/*
+	 * The cpufreq table is also built from the OPP table and so the count
+	 * should match.
+	 */
+	if (num_opps != cpufreq_cdev->max_level + 1) {
+		dev_warn(dev, "Number of OPPs not matching with max_levels\n");
+		return -EINVAL;
+	}
+
+	for (i = 0; i <= cpufreq_cdev->max_level; i++) {
+		unsigned long freq = freq_table[i].frequency * 1000;
+		u32 freq_mhz = freq_table[i].frequency / 1000;
+		u64 power;
+		u32 voltage_mv;
+
+		/*
+		 * Find ceil frequency as 'freq' may be slightly lower than OPP
+		 * freq due to truncation while converting to kHz.
+		 */
+		opp = dev_pm_opp_find_freq_ceil(dev, &freq);
+		if (IS_ERR(opp)) {
+			dev_err(dev, "failed to get opp for %lu frequency\n",
+				freq);
+			return -EINVAL;
+		}
+
+		voltage_mv = dev_pm_opp_get_voltage(opp) / 1000;
+		dev_pm_opp_put(opp);
+
+		/*
+		 * Do the multiplication with MHz and millivolt so as
+		 * to not overflow.
+		 */
+		power = (u64)capacitance * freq_mhz * voltage_mv * voltage_mv;
+		do_div(power, 1000000000);
+
+		/* power is stored in mW */
+		freq_table[i].power = power;
 	}
 
 	return 0;
