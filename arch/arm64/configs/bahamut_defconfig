@@ -12,6 +12,7 @@ CONFIG_SCHED_CASS=y
 # efficient
 CONFIG_PM=y
 CONFIG_WQ_POWER_EFFICIENT_DEFAULT=y
+CONFIG_POWERSUSPEND=y
 #################################################
 # BY KOCHENG
 CONFIG_HOTPLUG_SIZE_BITS=29
