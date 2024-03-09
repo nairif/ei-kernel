@@ -704,6 +704,10 @@ endif
 LLVM_AR		:= llvm-ar
 LLVM_NM		:= llvm-nm
 export LLVM_AR LLVM_NM
+
+# Set O3 optimization level for LTO
+LDFLAGS += --plugin-opt=O3
+
 endif
 
 # The arch Makefile can set ARCH_{CPP,A,C}FLAGS to override the default
@@ -724,7 +728,13 @@ KBUILD_CFLAGS	+= $(call cc-disable-warning, attribute-alias)
 ifdef CONFIG_CC_OPTIMIZE_FOR_SIZE
 KBUILD_CFLAGS   += -Os
 else
-KBUILD_CFLAGS   += -O2
+KBUILD_CFLAGS   += -O3
+ifeq ($(cc-name),gcc)
+KBUILD_CFLAGS	+= -mcpu=cortex-a76.cortex-a55 -mtune=cortex-a76.cortex-a55
+endif
+ifeq ($(cc-name),clang)
+KBUILD_CFLAGS	+= -mcpu=cortex-a55+crypto -mtune=cortex-a55
+endif
 endif
 
 # Tell gcc to never replace conditional load with a non-conditional one
@@ -801,7 +811,7 @@ KBUILD_CFLAGS += $(call cc-option,-fno-delete-null-pointer-checks,)
 KBUILD_CFLAGS += $(call cc-disable-warning, unused-but-set-variable)
 
 ifeq ($(ld-name),lld)
-LDFLAGS += -O2
+LDFLAGS += --lto-O3
 endif
 
 KBUILD_CFLAGS += $(call cc-disable-warning, unused-const-variable)
