@@ -5,7 +5,6 @@
 
 #define STATE_NOTIFIER_ACTIVE		0x01
 #define STATE_NOTIFIER_SUSPEND		0x02
-#define STATE_NOTIFIER			"state_notifier"
 
 struct state_event {
 	void *data;

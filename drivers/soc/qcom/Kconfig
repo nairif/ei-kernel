@@ -1116,3 +1116,7 @@ config RENAME_BLOCK_DEVICE
 	  to a name that is needed.
 
 source "drivers/soc/qcom/wcnss/Kconfig"
+
+config STATE_NOTIFIER
+	bool "State Notifier"
+
